@@ -11,12 +11,16 @@
   const DROP_RELATIVE_PATH_KEY = "radsysxRelativePath";
   enforceRadSysXTitle();
   const params = new URLSearchParams(window.location.search);
-  const launchFromUrl = params.get("launch");
   const localStartRequested = params.get("local") === "1";
   const initialViewerBasePath = resolveViewerBasePath(window.location.pathname) ?? "/";
+  const startsInStandaloneFhirViewer = isStandaloneFhirRoute(
+    viewerRelativePath(window.location.pathname, initialViewerBasePath),
+  );
+  const launchFromUrl = startsInStandaloneFhirViewer ? null : params.get("launch");
   const startsInStandaloneLocalViewer =
     !launchFromUrl && !window.__RADSYSX_LAUNCH__ && shouldUseStandaloneLocalViewer();
-  let loader = startsInStandaloneLocalViewer ? null : await ensureLoader();
+  let loader =
+    startsInStandaloneLocalViewer || startsInStandaloneFhirViewer ? null : await ensureLoader();
 
   window.__RADSYSX_VIEWER_BASE_PATH__ = initialViewerBasePath;
   window.__RADSYSX_NORMALIZE_SAME_ORIGIN_URL__ = normalizeSameOriginUrl;
@@ -34,6 +38,11 @@
   }
 
   async function bootstrap() {
+    if (startsInStandaloneFhirViewer) {
+      enterStandaloneFhirViewer();
+      return;
+    }
+
     if (launchFromUrl) {
       persistLaunchToken(launchFromUrl);
       stripSensitiveQuery();
@@ -98,6 +107,23 @@
     }
   }
 
+  function enterStandaloneFhirViewer() {
+    window.__RADSYSX_FHIR_VIEWER__ = true;
+    window.__RADSYSX_VIEWER_RUNTIME__ = {
+      viewerKind: "ohif-fhir",
+      viewerBasePath: window.__RADSYSX_VIEWER_BASE_PATH__ ?? "/viewer",
+      featureFlags: {
+        reportPanel: false,
+        aiPanel: true,
+        derivedPanel: false,
+        auditPanel: false,
+      },
+    };
+    window.__RADSYSX_CLEAN_VIEWER_URL__ = function preserveSmartLaunchQuery() {};
+    window.__RADSYSX_FHIR_VIEWER_READY__ = true;
+    removeBootstrapLoader();
+  }
+
   async function enterStandaloneLocalViewer() {
     window.__RADSYSX_LOCAL_VIEWER__ = true;
     window.__RADSYSX_VIEWER_RUNTIME__ = {
@@ -139,6 +165,7 @@
     if (loader) {
       loader.dataset.state = "local-viewer";
     }
+    refreshStandaloneLocalChrome();
     window.__RADSYSX_LOCAL_VIEWER_READY__ = true;
     queueStandaloneLocalChromeRefresh();
     removeBootstrapLoader();
@@ -195,6 +222,10 @@
       hasDesktopLocalImport() ||
       isStandaloneLocalRoute(viewerRelativePath(window.location.pathname)) ||
       params.get("datasources") === "dicomlocal";
+  }
+
+  function isStandaloneFhirRoute(relativePath) {
+    return relativePath.split("/")[0] === "fhir-viewer";
   }
 
   function isStandaloneLocalRoute(relativePath) {

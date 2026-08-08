@@ -35,6 +35,7 @@ The current clinical baseline on this branch is:
 - Backend-issued signed cookies provide local seeded clinical identity until institutional auth replaces them.
 - Derived DICOM writeback stays backend-mediated through STOW.
 - The local stack is designed to run as one origin through nginx, frontend, viewer, backend, and Orthanc.
+- The OHIF app exposes `/viewer/fhir-viewer` for FHIR R4 ImagingStudy/DocumentReference discovery and SMART on FHIR EHR launch with PKCE.
 - The desktop app starts FastAPI, Next.js, and a local OHIF viewer bridge under one localhost origin for a no-Docker local run path, opening OHIF first with local import ready, keeping the visible app name as RadSysX, and including a frontend-only RadSysX AI chat panel in the OHIF right sidebar.
 - The desktop app enables native local file/folder selection plus browser drag-and-drop fallback for backend-owned local imaging import of DICOM, DICOMDIR, NIFTI `.nii`/`.nii.gz`/paired `.hdr+.img`, NRRD `.nrrd`, ZIP archives containing supported files, and common image files, with safe imported-study asset summaries, backend-mediated NIFTI slice previews/common-image previews including TIFF SVG header previews, NRRD header/voxel metrics, and deterministic technical analysis for local analysis readiness.
 
@@ -59,6 +60,18 @@ Those capabilities remain part of RadSysX, but they are not the clinical source 
 8. `GET /api/studies/{studyUid}/workspace`
 9. Persist reports, AI jobs, derived results, and audit through backend contracts
 10. Persist uploaded derived DICOM through `POST /api/derived-results/stow`
+
+## FHIR Viewer
+
+`/viewer/fhir-viewer` is a separate SMART on FHIR entry into the RadSysX OHIF shell. A standard EHR launch supplies opaque `iss` and `launch` parameters; the public SMART client ID comes from `RADSYSX_FHIR_CLIENT_ID` at viewer build time or a `client_id` launch parameter. The FHIR server remains the metadata authority and must allow the RadSysX browser origin through CORS.
+
+The route resolves FHIR R4 `ImagingStudy` and `DocumentReference` resources into OHIF studies while keeping access tokens in session storage. Do not place patient identifiers, FHIR payloads, or access tokens in its URL. SMART authorization does not create a governed RadSysX session, so report persistence, audit, derived-result writeback, and STOW remain unavailable until an explicit backend contract connects those authorities.
+
+Optional viewer-build settings are:
+
+- `RADSYSX_FHIR_SERVER_URL`
+- `RADSYSX_FHIR_CLIENT_ID`
+- `RADSYSX_FHIR_SCOPE` (defaults to `launch openid fhirUser patient/*.read`)
 
 ## Architecture
 
@@ -91,9 +104,11 @@ Those capabilities remain part of RadSysX, but they are not the clinical source 
 
 - `viewer/scripts/build-ohif-dist.mjs`
 - `viewer/assets/radsysx-bootstrap.js`
+- `viewer/assets/radsysx-fhir-extension.js`
 - `viewer/assets/radsysx-ohif-extension.js`
 - `viewer/assets/radsysx-ohif-mode.js`
 - `viewer/assets/radsysx-viewer.css`
+- `viewer/vendor/ohif-fhir-viewer/*`
 
 ### Electron desktop fast path
 
@@ -202,6 +217,9 @@ The most important clinical env vars are:
 - `RADSYSX_ORTHANC_DICOMWEB_URL`
 - `RADSYSX_ORTHANC_USERNAME`
 - `RADSYSX_ORTHANC_PASSWORD`
+- `RADSYSX_FHIR_SERVER_URL`
+- `RADSYSX_FHIR_CLIENT_ID`
+- `RADSYSX_FHIR_SCOPE`
 - `NEXT_PUBLIC_RADSYSX_APP_MODE`
 - `NEXT_PUBLIC_BACKEND_URL`
 - `NEXT_PUBLIC_VIEWER_BASE_URL`
@@ -251,6 +269,8 @@ npm install --legacy-peer-deps
 Backend dependencies should be installed into `.venv`, not into ad hoc machine-local paths.
 Node dependencies should be installed from the repo root so the workspace-managed root `package-lock.json` remains authoritative.
 `backend/requirements-clinical.txt` is the governed clinical bootstrap set. `backend/requirements.txt` remains the broader research/agent dependency set and may carry tighter interpreter constraints than the clinical slice.
+
+The FHIR/SMART data-source slice is pinned in `viewer/vendor/ohif-fhir-viewer/UPSTREAM.md`; normal viewer builds are network-independent and do not fetch moving upstream code.
 
 ### Run the desktop app fast path
 

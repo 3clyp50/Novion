@@ -1,6 +1,6 @@
 # RadSysX Agent Guidance
 
-Last updated: 2026-06-13
+Last updated: 2026-08-08
 
 ## Purpose
 
@@ -9,6 +9,7 @@ Last updated: 2026-06-13
   - `research`: rapid experimentation, legacy viewer flows, browser-side AI prototypes, and agent/MCP exploration.
   - `clinical`: governed FastAPI contracts, worklist-driven launch, opaque viewer sessions, OHIF reading, audited reporting, AI workflow state, and backend-mediated derived DICOM writeback.
 - RadSysX now also has a `desktop` runtime path: an Electron fast path that starts the local backend, Next.js shell, and OHIF viewer bridge under one localhost origin without Docker; by default it opens directly into OHIF's native local DICOM route at `/viewer/local`, keeps the visible app name as RadSysX, and exposes a voice-first RadSysX AI sidebar that binds to backend session/message stub contracts when authenticated while preserving local fallback.
+- The OHIF app also exposes `/viewer/fhir-viewer` for FHIR R4 imaging discovery through SMART on FHIR. That route has its own SMART authorization context and is not a shortcut around the governed RadSysX launch/report/writeback contracts.
 - Do not treat the research and clinical surfaces as equivalent.
 
 ## Ownership
@@ -112,9 +113,11 @@ Last updated: 2026-06-13
 - OHIF viewer runtime:
   - `viewer/scripts/build-ohif-dist.mjs`
   - `viewer/assets/radsysx-bootstrap.js`
+  - `viewer/assets/radsysx-fhir-extension.js`
   - `viewer/assets/radsysx-ohif-extension.js`
   - `viewer/assets/radsysx-ohif-mode.js`
   - `viewer/assets/radsysx-viewer.css`
+  - `viewer/vendor/ohif-fhir-viewer/*`
 - Desktop fast path:
   - `desktop/package.json`
   - `desktop/src/main.mjs`
@@ -146,6 +149,7 @@ Last updated: 2026-06-13
 ## Security And PHI Rules
 
 - Do not put PHI-bearing launch context directly into viewer URLs.
+- SMART launches may use the standard opaque `iss`, `launch`, `client_id`, `code`, and `state` parameters on `/viewer/fhir-viewer`; do not add patient identifiers, FHIR payloads, or access tokens to that URL.
 - Use opaque launch tokens, then resolve server-side.
 - Do not write uploads into public static paths for clinical workflows.
 - Do not log patient names, identifiers, DICOM tags, or FHIR payloads casually.
@@ -187,6 +191,7 @@ Last updated: 2026-06-13
   - `npm run build --workspace frontend`
   - `npm run type-check --workspace viewer`
   - `npm run build --workspace viewer`
+  - `npm run test:fhir-bridge --workspace viewer`
 - Use broader suites only when the change demands it.
 - Install missing Python dependencies into `.venv`; do not normalize one-off temp-path dependency shims as part of expected workflow.
 - If Docker Engine and Compose are available on the Linux host, validate the composed stack with Orthanc and nginx for clinical end-to-end work.
@@ -221,6 +226,7 @@ Last updated: 2026-06-13
 - Frontend build: `npm run build --workspace frontend`
 - Viewer type check: `npm run type-check --workspace viewer`
 - Viewer build: `npm run build --workspace viewer`
+- Viewer FHIR bridge check: `npm run test:fhir-bridge --workspace viewer`
 - Root type check: `npm run type-check`
 
 ## Local Clinical Stack
@@ -234,6 +240,7 @@ Last updated: 2026-06-13
   - Desktop runtime, doctor, bootstrap, and smoke helpers resolve the repo-local venv Python using platform-specific paths (`.venv/bin/python` on Unix-like hosts, `.venv/Scripts/python.exe` on Windows) and may be overridden with `RADSYSX_DESKTOP_PYTHON` or `PYTHON`.
   - Electron opens `/viewer/local` by default so OHIF's native local DICOM loader is the first visible screen. The viewer bootstrap no longer requires a governed launch for local OHIF routes, suppresses the clinical workspace panel in standalone local mode, rewrites local DICOM navigation to `/viewer/dicomlocal`, and keeps the window/document title as `RadSysX`; use `RADSYSX_DESKTOP_START_PATH` only when intentionally validating a different first route.
   - Standalone and governed OHIF viewer layouts include a voice-first RadSysX AI right-sidebar panel. It creates an authenticated backend AI sidebar session when possible, sends voice/composer turns through `/api/ai/sidebar/*` stub contracts, keeps a local fallback when the backend session is unavailable, and lets users attach ROI/segmentation/measurement context chips through `@`. These endpoints are orchestration stubs only: no diagnostic model inference, no report persistence, and no DICOM SEG writeback occur through them yet.
+  - `/viewer/fhir-viewer` activates the pinned FHIR R4 data source and supports SMART EHR launch with PKCE. The browser calls the configured FHIR origin directly, so that server must allow the RadSysX origin through CORS. Set the public SMART client with `RADSYSX_FHIR_CLIENT_ID` before building the viewer or pass `client_id` on the launch URL; optional build settings are `RADSYSX_FHIR_SERVER_URL` and `RADSYSX_FHIR_SCOPE`.
   - The desktop launcher builds or refreshes the frontend production shell when the expected desktop build stamp is missing or mismatched; the default public frontend API/viewer settings are same-origin so the build is not tied to a specific localhost port. Use `npm run desktop:dev-frontend` or `RADSYSX_DESKTOP_FRONTEND_MODE=development npm run desktop` only when intentionally doing live Next.js UI development.
   - This path validates local login, native local file/folder selection, local imaging import, imported-study asset summaries/previews/technical analysis, worklist, launch, workspace, report, AI job, and audit contracts without Docker.
   - Run `npm run desktop:smoke:launch` to prove the same user-facing launcher checks setup and reaches service-ready Electron startup through a cross-platform smoke shutdown; `npm run desktop:smoke:local-start` remains the first-screen OHIF local-mode assertion.

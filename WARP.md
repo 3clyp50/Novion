@@ -7,6 +7,7 @@ This repository’s authoritative implementation guidance is [AGENTS.md](AGENTS.
 - Product/runtime name: `RadSysX`
 - Clinical authority: `backend/server.py` + `backend/clinical/*`
 - Clinical viewer: dedicated OHIF runtime in `viewer/`
+- SMART FHIR viewer: `/viewer/fhir-viewer`, separate from governed RadSysX launch authority
 - Clinical `/viewer` fallback: none
 - Shared browser clinical package: `packages/clinical-web/*`
 - Clinical shell: `frontend/app/login/page.tsx`, `frontend/app/worklist/page.tsx`
@@ -36,6 +37,7 @@ python3 -m pytest backend/tests/test_clinical_platform.py
 npm run type-check --workspace frontend
 npm run type-check --workspace viewer
 npm run build --workspace viewer
+npm run test:fhir-bridge --workspace viewer
 npm run desktop -- --check-only
 npm run desktop:doctor
 npm run desktop:smoke:launch
@@ -75,4 +77,5 @@ RADSYSX_APP_MODE=research python3 backend/server.py
 - Do not restore the old bespoke viewer as a clinical fallback.
 - Do not treat research APIs as the clinical source of truth.
 - Do not put PHI-bearing launch context into viewer URLs.
+- On `/viewer/fhir-viewer`, allow only standard opaque SMART launch/callback parameters; never add patient identifiers, payloads, or access tokens.
 - Do not let the browser write directly to Orthanc in governed flows.

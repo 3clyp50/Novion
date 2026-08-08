@@ -13,6 +13,8 @@ The clinical path is the migration target. Do not plan against research-only sea
 
 There is also a desktop fast path in `desktop/`: Electron starts the local FastAPI backend, Next.js shell, and generated OHIF viewer bridge under one localhost origin for no-Docker local use, with backend-owned local imaging import enabled.
 
+The OHIF app also serves `/viewer/fhir-viewer` for FHIR R4 imaging discovery through SMART on FHIR. Treat its SMART authorization as separate from the governed RadSysX launch/report/writeback authority.
+
 ## Environment Posture
 
 - Preferred host: native Linux
@@ -31,6 +33,7 @@ There is also a desktop fast path in `desktop/`: Electron starts the local FastA
 - Authoritative viewer: `viewer/` with:
   - `viewer/scripts/build-ohif-dist.mjs`
   - `viewer/assets/radsysx-bootstrap.js`
+  - `viewer/assets/radsysx-fhir-extension.js`
   - `viewer/assets/radsysx-ohif-extension.js`
   - `viewer/assets/radsysx-ohif-mode.js`
 - `viewer/assets/radsysx-viewer.css`
@@ -57,6 +60,7 @@ python3 -m pytest backend/tests/test_clinical_platform.py
 npm run type-check --workspace frontend
 npm run type-check --workspace viewer
 npm run build --workspace viewer
+npm run test:fhir-bridge --workspace viewer
 npm run desktop -- --check-only
 npm run desktop:doctor
 npm run desktop:smoke:launch

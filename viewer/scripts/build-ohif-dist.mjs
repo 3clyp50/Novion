@@ -1,23 +1,30 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
+const webpack = require(["web", "pack"].join(""));
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const viewerRoot = path.resolve(__dirname, "..");
 const distRoot = path.join(viewerRoot, "dist");
 const workspaceRoot = path.resolve(viewerRoot, "..");
+const fhirVendorRoot = path.join(viewerRoot, "vendor", "ohif-fhir-viewer");
 const candidateSourceDists = [
   path.join(viewerRoot, "node_modules", "@ohif", "app", "dist"),
   path.join(workspaceRoot, "node_modules", "@ohif", "app", "dist"),
 ];
 const sourceDist = candidateSourceDists.find((candidate) => fs.existsSync(candidate));
-const runtimeAssetNames = [
+const copiedRuntimeAssetNames = [
   "radsysx-bootstrap.js",
+  "radsysx-fhir-extension.js",
   "radsysx-ohif-extension.js",
   "radsysx-ohif-mode.js",
   "radsysx-viewer.css",
 ];
+const generatedRuntimeAssetNames = ["radsysx-fhir-datasource.js"];
+const runtimeAssetNames = [...copiedRuntimeAssetNames, ...generatedRuntimeAssetNames];
 
 if (!sourceDist) {
   throw new Error(
@@ -29,9 +36,10 @@ fs.rmSync(distRoot, { recursive: true, force: true });
 fs.mkdirSync(distRoot, { recursive: true });
 fs.cpSync(sourceDist, distRoot, { recursive: true });
 
-for (const assetName of runtimeAssetNames) {
+for (const assetName of copiedRuntimeAssetNames) {
   copyViewerAsset(assetName);
 }
+await buildFhirDataSourceBundle();
 copyWorkspaceFile(["RadSysX-Logo.png"], "radsysx-logo.png");
 copyWorkspaceFile(["RadSysX-Logo-Light.png"], "radsysx-logo-light.png");
 copyWorkspaceAsset(["react", "umd", "react.production.min.js"], "react.production.min.js");
@@ -67,6 +75,21 @@ function copyWorkspaceFile(relativeParts, outputName) {
 }
 
 function writeAppConfig() {
+  const fhirConfiguration = {
+    friendlyName: "FHIR R4 Server",
+    smartScope:
+      process.env.RADSYSX_FHIR_SCOPE?.trim() ||
+      "launch openid fhirUser patient/*.read",
+  };
+  const fhirBaseUrl = process.env.RADSYSX_FHIR_SERVER_URL?.trim().replace(/\/+$/, "");
+  const smartClientId = process.env.RADSYSX_FHIR_CLIENT_ID?.trim();
+  if (fhirBaseUrl) {
+    fhirConfiguration.fhirBaseUrl = fhirBaseUrl;
+  }
+  if (smartClientId) {
+    fhirConfiguration.smartClientId = smartClientId;
+  }
+
   const config = `/** @type {AppTypes.Config} */
 (function radsysxAppConfig() {
   window.config = {
@@ -80,10 +103,12 @@ function writeAppConfig() {
       "@ohif/extension-cornerstone-dicom-seg",
       "@ohif/extension-dicom-pdf",
       "@ohif/extension-dicom-video",
+      window.__RADSYSX_FHIR_EXTENSION__,
       window.__RADSYSX_OHIF_EXTENSION__,
     ],
     modes: [
       window.__RADSYSX_OHIF_MODE__,
+      window.__RADSYSX_FHIR_MODE__,
     ],
     customizationService: {},
     whiteLabeling: {
@@ -145,6 +170,11 @@ function writeAppConfig() {
         },
       },
       {
+        namespace: "@ohif/fhir-viewer.dataSourcesModule.fhir",
+        sourceName: "fhir",
+        configuration: ${JSON.stringify(fhirConfiguration, null, 10)},
+      },
+      {
         namespace: "@ohif/extension-default.dataSourcesModule.dicomlocal",
         sourceName: "dicomlocal",
         configuration: {
@@ -157,6 +187,91 @@ function writeAppConfig() {
 `;
 
   fs.writeFileSync(path.join(distRoot, "app-config.js"), config, "utf8");
+}
+
+async function buildFhirDataSourceBundle() {
+  const temporaryName = ".radsysx-fhir-datasource.bundle.js";
+  const temporaryPath = path.join(distRoot, temporaryName);
+  const outputPath = path.join(distRoot, generatedRuntimeAssetNames[0]);
+  const compiler = webpack({
+    mode: "production",
+    target: "web",
+    entry: path.join(fhirVendorRoot, "src", "getDataSourcesModule.js"),
+    devtool: false,
+    performance: false,
+    output: {
+      path: distRoot,
+      filename: temporaryName,
+      library: "radsysx-fhir-datasource",
+      libraryTarget: "umd",
+      globalObject: "globalThis",
+    },
+    externals: {
+      "@ohif/core": {
+        commonjs: "@ohif/core",
+        commonjs2: "@ohif/core",
+        amd: "@ohif/core",
+        root: "@ohif/core",
+      },
+    },
+    module: {
+      rules: [
+        {
+          test: /\.m?js$/,
+          resolve: { fullySpecified: false },
+        },
+      ],
+    },
+    resolve: {
+      modules: [
+        path.join(viewerRoot, "node_modules"),
+        path.join(workspaceRoot, "node_modules"),
+      ],
+      extensions: [".js"],
+    },
+  });
+
+  const stats = await new Promise((resolve, reject) => {
+    compiler.run((error, result) => {
+      compiler.close(() => {});
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(result);
+    });
+  });
+
+  if (!stats || stats.hasErrors()) {
+    throw new Error(
+      `Unable to build the FHIR data source bundle.\n${stats?.toString({
+        colors: false,
+        errors: true,
+        warnings: false,
+      }) ?? "Webpack returned no build result."}`,
+    );
+  }
+
+  const bundle = fs.readFileSync(temporaryPath, "utf8");
+  const wrapped = `// Bundled from node-on-fhir/ohif-fhir-viewer at 0935326fcc1eac519929734b061b5a6d645409b1.
+(function registerRadSysXFhirDataSource() {
+  let loadedBundle;
+  window.__RADSYSX_LOAD_FHIR_DATASOURCE__ = function loadRadSysXFhirDataSource() {
+    if (!loadedBundle) {
+      ${bundle}
+      loadedBundle = globalThis["radsysx-fhir-datasource"];
+    }
+    return loadedBundle;
+  };
+})();
+`;
+  fs.writeFileSync(outputPath, wrapped, "utf8");
+  fs.rmSync(temporaryPath);
+
+  const temporaryLicensePath = `${temporaryPath}.LICENSE.txt`;
+  if (fs.existsSync(temporaryLicensePath)) {
+    fs.renameSync(temporaryLicensePath, `${outputPath}.LICENSE.txt`);
+  }
 }
 
 function patchIndexHtml() {
@@ -193,6 +308,8 @@ function patchIndexHtml() {
     [
       '<script src="react.production.min.js"></script>',
       `<script src="radsysx-bootstrap.js?v=${runtimeAssetVersion}"></script>`,
+      `<script src="radsysx-fhir-datasource.js?v=${runtimeAssetVersion}"></script>`,
+      `<script src="radsysx-fhir-extension.js?v=${runtimeAssetVersion}"></script>`,
       `<script src="radsysx-ohif-extension.js?v=${runtimeAssetVersion}"></script>`,
       `<script src="radsysx-ohif-mode.js?v=${runtimeAssetVersion}"></script>`,
       '<script rel="preload" as="script" src="app-config.js"></script>',
@@ -217,6 +334,8 @@ function patchRuntimePublicPath() {
           "init-service-worker.js",
           "react.production.min.js",
           "radsysx-bootstrap.js",
+          "radsysx-fhir-datasource.js",
+          "radsysx-fhir-extension.js",
           "radsysx-ohif-extension.js",
           "radsysx-ohif-mode.js",
           "sw.js",
